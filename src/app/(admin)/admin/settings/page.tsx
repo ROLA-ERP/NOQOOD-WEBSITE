@@ -1,6 +1,6 @@
 import { guard } from '@/lib/admin';
 import { siteSettings, SOCIAL_KEYS } from '@/lib/settings';
-import { smtpConfigured } from '@/lib/mail';
+import { mailConfigured, resendConfigured } from '@/lib/mail';
 import { Flash, H1, Panel } from '@/components/AdminBits';
 import { settingsAction } from '../actions';
 
@@ -21,7 +21,7 @@ export default function Settings({ searchParams }: { searchParams: { msg?: strin
             <div><label className="label" htmlFor="phone">Phone (international format)</label><input id="phone" name="phone" defaultValue={s.phone} dir="ltr" className="field" /></div>
             <div><label className="label" htmlFor="whatsapp">WhatsApp number (digits only)</label><input id="whatsapp" name="whatsapp" defaultValue={s.whatsapp} dir="ltr" className="field" /></div>
           </div>
-          <p className="mt-3 text-sm text-ink-700">Email delivery: {smtpConfigured() ? 'SMTP is configured.' : 'SMTP is not configured on the server, so no email can be sent yet (leads are still saved).'}</p>
+          <p className="mt-3 text-sm text-ink-700">Email delivery: {mailConfigured() ? (resendConfigured() ? 'Email is sent through Resend.' : 'Email is sent through SMTP.') : 'No email provider is configured on the server, so no email can be sent yet (leads are still saved). Set RESEND_API_KEY (or SMTP_HOST, SMTP_USER and SMTP_PASS).'}</p>
         </Panel>
         <Panel title="Social media (leave empty to hide; only real https:// profile addresses)">
           <div className="grid gap-3 sm:grid-cols-2">{SOCIAL_KEYS.map(k => <div key={k}><label className="label capitalize" htmlFor={`social_${k}`}>{k}</label><input id={`social_${k}`} name={`social_${k}`} defaultValue={s.socials[k]} dir="ltr" placeholder="https://…" className="field" /></div>)}</div>

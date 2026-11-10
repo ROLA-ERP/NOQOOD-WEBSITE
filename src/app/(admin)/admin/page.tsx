@@ -3,7 +3,7 @@ import { guard } from '@/lib/admin';
 import { can } from '@/lib/auth';
 import { kpis, STATUSES } from '@/lib/leads';
 import { db } from '@/lib/db';
-import { smtpConfigured } from '@/lib/mail';
+import { mailConfigured, resendConfigured } from '@/lib/mail';
 import { Flash, H1, Panel, STATUS_LABEL } from '@/components/AdminBits';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,7 @@ export default function Dashboard({ searchParams }: { searchParams: { msg?: stri
           </Panel>
           <Panel title="Sources"><ul className="text-sm text-ink-700">{k.bySource.length ? k.bySource.map(s => <li key={s.source}>{s.source}: <strong>{s.n}</strong></li>) : <li>No leads yet.</li>}</ul></Panel>
           <Panel title="Email notifications">
-            <p className="text-sm text-ink-700">{smtpConfigured() ? 'SMTP is configured.' : 'SMTP is NOT configured: new leads are saved here, but no email is sent. Set SMTP_HOST, SMTP_USER and SMTP_PASS.'}</p>
+            <p className="text-sm text-ink-700">{mailConfigured() ? (resendConfigured() ? 'Email is sent through Resend.' : 'Email is sent through SMTP.') : 'No email provider is configured: new leads are saved here, but no email is sent. Set RESEND_API_KEY (or SMTP_HOST, SMTP_USER and SMTP_PASS).'}</p>
             {failed > 0 && <p className="mt-2 text-sm font-semibold text-red-700">{failed} submission(s) were stored without a confirmed email notification. Check Submissions.</p>}
           </Panel>
         </>
