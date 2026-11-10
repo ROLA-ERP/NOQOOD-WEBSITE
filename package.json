@@ -13,6 +13,8 @@
     "lint": "next lint",
     "test": "tsx --test tests/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:backup": "tsx scripts/backup.ts",
+    "db:restore": "tsx scripts/restore.ts",
     "admin:create": "tsx scripts/create-admin.ts",
     "admin:reset": "tsx scripts/reset-admin.ts",
     "check": "npm run typecheck && npm run lint && npm test"

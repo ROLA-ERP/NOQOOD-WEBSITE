@@ -36,4 +36,5 @@
 - [ ] ERP still works at its own address (login, one invoice view)
 
 ## 5. Backups
-The website DB is a single SQLite file on its volume: schedule a copy of `/data/noqood-website.db` (it holds leads).
+The website DB is a single SQLite file on its volume (it holds leads). The running site makes a consistent copy (`VACUUM INTO`) one minute after start and then every `BACKUP_INTERVAL_HOURS` (default 24) into `/data/backups`, keeping `BACKUP_KEEP` (default 14); `BACKUP_ENABLED=0` turns it off.
+Those copies are on the same volume, so ALSO copy `/data/backups` somewhere else regularly (download the newest file, or a scheduled job). Manual backup: `npm run db:backup`. Restore: stop the site, then `npm run db:restore -- <file>` (the previous DB is kept as `*.before-restore`). Try a restore on a copy before you need it.

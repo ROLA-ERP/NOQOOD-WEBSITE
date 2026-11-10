@@ -19,7 +19,7 @@ const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   output: 'standalone',
-  experimental: { serverComponentsExternalPackages: ['nodemailer'] },
+  experimental: { serverComponentsExternalPackages: ['nodemailer'], instrumentationHook: true },
   async headers() {
     return [{
       source: '/:path*',
