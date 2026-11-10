@@ -4,9 +4,9 @@ import { contactSchema, demoSchema, fieldErrors } from './validate';
 import { checkFormToken, ipHash, sha256 } from './security';
 import { overLimit } from './ratelimit';
 import { createLead } from './leads';
-import { notifyNewLead } from './mail';
+import { mailConfigured, notifyNewLead, type NotifyResult } from './mail';
 
-export interface SubmitContext { ip: string; userAgent?: string; lang: 'ar' | 'en'; now?: number }
+export interface SubmitContext { ip: string; userAgent?: string; lang: 'ar' | 'en'; now?: number; awaitNotify?: boolean }
 export type SubmitResult =
   | { status: 201; body: { ok: true; leadCode: string; notified: boolean } }
   | { status: 400 | 422 | 429 | 500; body: { ok: false; error: string; fields?: Record<string, string> } };
@@ -66,9 +66,17 @@ export async function handleSubmission(kind: 'contact' | 'demo', raw: unknown, c
     return { status: 500, body: { ok: false, error: 'storage' } };
   }
 
-  // 4) notify (best effort, and recorded honestly)
-  const result = await notifyNewLead(kind, { lead_code: leadCode, ...v, consent: undefined, website: undefined, form_token: undefined, captcha: undefined });
-  d.prepare('UPDATE submissions SET notify_status = ?, notify_detail = ? WHERE id = ?').run(result.status, result.detail, submissionId);
-  if (result.status !== 'sent') d.prepare("INSERT INTO lead_activities (lead_id, kind, detail) VALUES (?, 'notify', ?)").run(leadId, `Email notification: ${result.status} (${result.detail})`);
-  return { status: 201, body: { ok: true, leadCode, notified: result.status === 'sent' } };
+  // 4) notify. The visitor is answered as soon as the lead is stored; the email goes out in the background (with retries) and its real
+  //    outcome is written to the submission afterwards. With no provider configured the outcome is known at once.
+  const job = notifyNewLead(kind, { lead_code: leadCode, ...v, consent: undefined, website: undefined, form_token: undefined, captcha: undefined })
+    .catch((e): NotifyResult => ({ status: 'failed', detail: String((e as Error).message).slice(0, 200) }))
+    .then(result => {
+      try {
+        d.prepare('UPDATE submissions SET notify_status = ?, notify_detail = ? WHERE id = ?').run(result.status, result.detail, submissionId);
+        if (result.status !== 'sent') d.prepare("INSERT INTO lead_activities (lead_id, kind, detail) VALUES (?, 'notify', ?)").run(leadId, `Email notification: ${result.status} (${result.detail})`);
+      } catch (e) { console.error('[submit] could not record the notification outcome:', (e as Error).message); }
+      return result;
+    });
+  if (!mailConfigured() || ctx.awaitNotify) { const r = await job; return { status: 201, body: { ok: true, leadCode, notified: r.status === 'sent' } }; }
+  return { status: 201, body: { ok: true, leadCode, notified: false } };
 }

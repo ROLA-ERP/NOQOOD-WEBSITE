@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { audit, changePassword, COOKIE, cookieOptions, createUser, login, logout, requireUser, resetPassword, setRole, toggleActive, unlockUser, type Role } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { ipHash } from '@/lib/security';
-import { addNote, assign, setFollowUp, setStatus, updateDetails } from '@/lib/leads';
+import { addNote, assign, deleteLead, setFollowUp, setStatus, updateDetails } from '@/lib/leads';
 import { saveSiteSettings, setOverride, socialUrl, SOCIAL_KEYS, type SocialKey } from '@/lib/settings';
 import { slugify } from '@/lib/validate';
 import { num, str } from '@/lib/admin';
@@ -42,6 +42,12 @@ export async function leadAction(fd: FormData) {
     else if (op === 'note') addNote(id, str(fd, 'note', 2000), u.id);
     else if (op === 'follow') setFollowUp(id, str(fd, 'date', 10) || null, u.id);
     else if (op === 'details') updateDetails(id, { name: str(fd, 'name', 120), company: str(fd, 'company', 150) || null, email: str(fd, 'email', 160).toLowerCase(), phone: str(fd, 'phone', 30) || null, country: str(fd, 'country', 80) || null, notes: str(fd, 'notes', 3000) || null }, u.id);
+    else if (op === 'delete') {
+      requireUser('leads.delete', str(fd, 'csrf', 100)); // administrators only
+      if (str(fd, 'confirm', 10) !== 'DELETE') throw new Error('Type DELETE to confirm');
+      deleteLead(id); audit(u, 'lead_delete', 'lead', id);
+      revalidatePath('/admin/leads'); back('/admin/leads', 'Lead and its stored form data deleted');
+    }
     else throw new Error('Unknown operation');
     audit(u, `lead_${op}`, 'lead', id);
   } catch (e) { back(`/admin/leads/${id}`, (e as Error).message); }

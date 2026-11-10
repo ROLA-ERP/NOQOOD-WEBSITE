@@ -11,6 +11,7 @@ import { db, migrate } from '../src/lib/db';
 import { erpUrl } from '../src/lib/settings';
 import { formToken, checkFormToken } from '../src/lib/security';
 import { handleSubmission } from '../src/lib/submit';
+import { deleteLead, listLeads, activities, getLead } from '../src/lib/leads';
 import { createUser, login, changePassword, resetPassword, setRole, toggleActive, userForToken } from '../src/lib/auth';
 
 test('F-02: the client-typed left-most X-Forwarded-For entry is ignored', () => {
@@ -73,4 +74,36 @@ test('F-05: change password, admin reset (unlocks), role and active guards keep 
   assert.throws(() => toggleActive(boss), /last active administrator/);
   setRole(id, 'admin'); setRole(boss, 'editor');
   assert.equal((db().prepare('SELECT role FROM users WHERE id = ?').get(boss) as { role: string }).role, 'editor');
+});
+
+test('F-06: a repeat contact copies its message to the first lead; a repeat demo request moves the first lead to demo_requested', async () => {
+  await handleSubmission('contact', form({ email: 'again@x.example', message: 'First question about stock.' }), ctx('10.2.0.1'));
+  const first = listLeads({ q: 'again@x.example' }).rows[0]; assert.equal(first.status, 'new');
+  await handleSubmission('demo', { name: 'Sara Ali', company: 'Gulf Co', email: 'again@x.example', phone: '+965 5555 0000', country: 'Kuwait', industry: 'retail', employees: '11-50', interest: ['hr'], requirements: 'Payroll for 40 staff', contact_method: 'email', consent: true, form_token: formToken(T0) }, ctx('10.2.0.2'));
+  assert.equal(getLead(first.id)?.status, 'demo_requested');
+  const rep = activities(first.id).find(a => a.kind === 'repeat');
+  assert.match(rep?.detail || '', /Payroll for 40 staff/);
+});
+
+test('F-13: deleting a lead removes its submissions, timeline and repeat rows', async () => {
+  await handleSubmission('contact', form({ email: 'erase@x.example' }), ctx('10.2.1.1'));
+  await handleSubmission('contact', form({ email: 'erase@x.example' }), ctx('10.2.1.2'));
+  const lead = listLeads({ q: 'erase@x.example' }).rows[0];
+  deleteLead(lead.id);
+  assert.equal(listLeads({ q: 'erase@x.example', includeDuplicates: true }).total, 0);
+  assert.equal((db().prepare("SELECT COUNT(*) n FROM submissions WHERE payload LIKE '%erase@x.example%'").get() as { n: number }).n, 0);
+  assert.throws(() => deleteLead(lead.id), /not found/);
+});
+
+test('F-08: with a provider configured the visitor is answered before the email finishes, and the outcome is recorded afterwards', async () => {
+  process.env.RESEND_API_KEY = 're_test'; const realFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = (async () => { calls += 1; await new Promise(r => setTimeout(r, 100)); return calls < 2 ? new Response('{}', { status: 503 }) : new Response(JSON.stringify({ id: 'abc' }), { status: 200 }); }) as typeof fetch;
+  try {
+    const t0 = Date.now();
+    const r = await handleSubmission('contact', form({ email: 'bg@x.example' }), ctx('10.2.2.1'));
+    assert.equal(r.status, 201); assert.ok(Date.now() - t0 < 90, 'answered without waiting for the mail provider');
+    await new Promise(r2 => setTimeout(r2, 2200)); // one retry after the 503
+    const row = db().prepare("SELECT notify_status, notify_detail FROM submissions WHERE payload LIKE '%bg@x.example%'").get() as { notify_status: string; notify_detail: string };
+    assert.equal(row.notify_status, 'sent'); assert.match(row.notify_detail, /after 2 tries/);
+  } finally { globalThis.fetch = realFetch; delete process.env.RESEND_API_KEY; }
 });

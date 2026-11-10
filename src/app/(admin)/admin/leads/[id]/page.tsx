@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { guard } from '@/lib/admin';
+import { can } from '@/lib/auth';
 import { activities, getLead, STATUSES } from '@/lib/leads';
 import { db } from '@/lib/db';
 import { Flash, H1, Panel, STATUS_LABEL } from '@/components/AdminBits';
@@ -61,6 +62,15 @@ export default function LeadPage({ params, searchParams }: { params: { id: strin
           {timeline.map(a => <li key={a.id} className="border-s-2 border-teal-500 ps-3 text-sm"><p className="text-xs text-ink-500">{a.created_at} · {a.user_name || 'system'} · {a.kind}</p><p className="whitespace-pre-wrap">{a.detail}</p></li>)}
         </ul>
       </Panel>
+      {can(u.role, 'leads.delete') && (
+        <Panel title="Delete personal data">
+          <p className="mb-2 text-sm text-ink-700">Removes this lead, its notes and its form submissions (also repeat contacts linked to it). It cannot be undone.</p>
+          <form action={leadAction} className="flex gap-2">{hid('delete')}
+            <input name="confirm" className="field" placeholder="Type DELETE" aria-label="Type DELETE to confirm" autoComplete="off" />
+            <button className="btn btn-outline !py-2" type="submit">Delete lead</button>
+          </form>
+        </Panel>
+      )}
       {sub.length > 0 && (
         <Panel title="Form submissions and email notification">
           <ul className="text-sm">{sub.map(s => <li key={s.id}>#{s.id} {s.kind} · {s.created_at} · email: <strong>{s.notify_status}</strong>{s.notify_detail ? ` (${s.notify_detail})` : ''}</li>)}</ul>

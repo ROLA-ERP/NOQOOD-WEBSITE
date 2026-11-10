@@ -55,10 +55,31 @@ export function createLead(input: NewLeadInput): { lead: Lead; duplicateOf: numb
   const lead = getLead(Number(res.lastInsertRowid)) as Lead;
   addActivity(lead.id, null, 'created', `Lead created from ${lead.source}${dup ? ` (repeat of ${dup.lead_code})` : ''}`);
   if (dup) {
-    addActivity(dup.id, null, 'repeat', `The same person contacted again (${lead.lead_code}, ${lead.source})`);
+    // the repeat's own message is copied to the first lead, so nobody has to open the hidden duplicate to read it
+    addActivity(dup.id, null, 'repeat', `The same person contacted again (${lead.lead_code}, ${lead.source}).${input.notes ? `\n${input.notes}` : ''}`);
     db().prepare("UPDATE leads SET updated_at = datetime('now') WHERE id = ?").run(dup.id);
+    if (input.source === 'demo' && ['new', 'contacted', 'qualified'].includes(dup.status)) {
+      db().prepare("UPDATE leads SET status = 'demo_requested' WHERE id = ?").run(dup.id);
+      addActivity(dup.id, null, 'status', `${dup.status} → demo_requested (new demo request ${lead.lead_code})`);
+    }
   }
   return { lead, duplicateOf: dup ? dup.id : null };
+}
+
+/** Removes a lead and everything stored about it: its submissions (the form payloads), timeline, and links from repeat rows. */
+export function deleteLead(id: number): void {
+  const d = db();
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    d.prepare('DELETE FROM submissions WHERE lead_id = ?').run(id);
+    // repeats of this person lose their anchor: delete them too, they are the same personal data
+    const repeats = d.prepare('SELECT id FROM leads WHERE duplicate_of = ?').all(id) as { id: number }[];
+    for (const r of repeats) d.prepare('DELETE FROM submissions WHERE lead_id = ?').run(r.id);
+    d.prepare('DELETE FROM leads WHERE duplicate_of = ?').run(id);
+    const res = d.prepare('DELETE FROM leads WHERE id = ?').run(id);
+    if (!Number(res.changes)) throw new Error('Lead not found');
+    d.exec('COMMIT');
+  } catch (e) { try { d.exec('ROLLBACK'); } catch { /* nothing open */ } throw e; }
 }
 
 export function getLead(id: number): Lead | null {

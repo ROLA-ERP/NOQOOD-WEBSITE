@@ -25,19 +25,26 @@ export async function notifyNewLead(kind: 'contact' | 'demo', lead: Record<strin
   const html = `<h3>${kind === 'demo' ? 'New demo request' : 'New inquiry'}</h3><table>${rows}</table>`;
 
   if (resendConfigured()) {
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.RESEND_FROM || 'NOQOOD <onboarding@resend.dev>', to: [to], subject, html }),
-        signal: AbortSignal.timeout(15000),
-      });
-      const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
-      if (res.ok && data.id) return { status: 'sent', detail: `accepted by Resend (id ${data.id})` };
-      return { status: 'failed', detail: `Resend refused it: ${(data.message || res.statusText || String(res.status)).slice(0, 160)}` };
-    } catch (e) {
-      return { status: 'failed', detail: `Resend: ${(e as Error).message.slice(0, 160)}` };
+    // up to three tries: a network error, a timeout, 429 or a 5xx is retried after a short pause; any other refusal is final
+    let last: NotifyResult = { status: 'failed', detail: 'Resend: not tried' };
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (attempt > 1) await new Promise(r => setTimeout(r, (attempt - 1) * 1500));
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: process.env.RESEND_FROM || 'NOQOOD <onboarding@resend.dev>', to: [to], subject, html }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
+        if (res.ok && data.id) return { status: 'sent', detail: `accepted by Resend (id ${data.id})${attempt > 1 ? ` after ${attempt} tries` : ''}` };
+        last = { status: 'failed', detail: `Resend refused it: ${(data.message || res.statusText || String(res.status)).slice(0, 160)}` };
+        if (res.status !== 429 && res.status < 500) return last;
+      } catch (e) {
+        last = { status: 'failed', detail: `Resend: ${(e as Error).message.slice(0, 160)}` };
+      }
     }
+    return last;
   }
 
   try {
