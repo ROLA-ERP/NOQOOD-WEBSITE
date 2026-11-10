@@ -52,7 +52,7 @@ export function saveSiteSettings(patch: Partial<SiteSettings>): SiteSettings {
 export const socialUrl = (v: string): string | null => (/^https:\/\/[^\s]+$/.test(v || '') ? v : null);
 
 export function siteUrl(): string { return (process.env.SITE_URL || 'https://www.noqoodapp.com').replace(/\/+$/, ''); }
-export function erpUrl(): string { return (process.env.ERP_URL || 'https://www.noqoodapp.com').replace(/\/+$/, ''); }
+export function erpUrl(): string { return (process.env.ERP_URL || 'https://app.noqoodapp.com').replace(/\/+$/, ''); }
 
 // ── text overrides: the administrator can replace any translatable text by key and language ──
 export function overrides(lang: 'ar' | 'en'): Record<string, string> {

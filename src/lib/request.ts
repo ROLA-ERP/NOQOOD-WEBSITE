@@ -1,8 +1,15 @@
 // Small helpers for route handlers.
+/**
+ * The visitor's address. The left-most X-Forwarded-For entry is whatever the client typed, so it is never used: the proxy in front of the
+ * site (Railway) appends the address it saw, so we count TRUSTED_PROXY_HOPS entries from the right (default 1).
+ */
+export function pickClientIp(forwardedFor: string | null | undefined, realIp: string | null | undefined, hops = Number(process.env.TRUSTED_PROXY_HOPS || 1)): string {
+  const parts = (forwardedFor || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length) return parts[Math.max(0, parts.length - Math.max(1, hops))];
+  return (realIp || '').trim() || 'unknown';
+}
 export function clientIp(req: Request): string {
-  const fwd = req.headers.get('x-forwarded-for');
-  if (fwd) return fwd.split(',')[0].trim();
-  return req.headers.get('x-real-ip') || 'unknown';
+  return pickClientIp(req.headers.get('x-forwarded-for'), req.headers.get('x-real-ip'));
 }
 
 /** A browser form must come from this site: if an Origin header is present it must match the host. */

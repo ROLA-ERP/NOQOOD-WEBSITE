@@ -10,8 +10,9 @@ import { addNote, assign, setFollowUp, setStatus, updateDetails } from '@/lib/le
 import { saveSiteSettings, setOverride, socialUrl, SOCIAL_KEYS, type SocialKey } from '@/lib/settings';
 import { slugify } from '@/lib/validate';
 import { num, str } from '@/lib/admin';
+import { pickClientIp } from '@/lib/request';
 
-const clientIp = () => headers().get('x-forwarded-for')?.split(',')[0].trim() || headers().get('x-real-ip') || 'unknown';
+const clientIp = () => pickClientIp(headers().get('x-forwarded-for'), headers().get('x-real-ip'));
 function back(to: string, msg?: string): never { return redirect(msg ? `${to}${to.includes('?') ? '&' : '?'}msg=${encodeURIComponent(msg)}` : to); }
 
 // ── sign in / out ──

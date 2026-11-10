@@ -94,8 +94,10 @@ export function migrate(d: DatabaseSync): string[] {
   const applied: string[] = [];
   for (const m of MIGRATIONS) {
     if (done.has(m.id)) continue;
-    d.exec('BEGIN');
-    try { d.exec(m.sql); d.prepare('INSERT INTO schema_migrations (id) VALUES (?)').run(m.id); d.exec('COMMIT'); applied.push(m.id); }
+    d.exec('BEGIN IMMEDIATE'); // takes the write lock first, so two processes starting together cannot both apply a migration
+    try {
+      if (d.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(m.id)) { d.exec('COMMIT'); continue; }
+      d.exec(m.sql); d.prepare('INSERT INTO schema_migrations (id) VALUES (?)').run(m.id); d.exec('COMMIT'); applied.push(m.id); }
     catch (e) { d.exec('ROLLBACK'); throw e; }
   }
   return applied;
