@@ -37,7 +37,9 @@ export type LoginResult = { ok: true; token: string; user: SessionUser } | { ok:
 export function login(email: string, password: string, ip: string): LoginResult {
   const u = db().prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase()) as { id: number; email: string; name: string; role: Role; password_hash: string; active: number; failed_logins: number; locked_until: string | null } | undefined;
   if (!u || !u.active) { verifyPassword(password, hashPassword('timing-decoy')); audit(null, 'login_failed', 'user', undefined, email.slice(0, 80), ip); return { ok: false, reason: 'invalid' }; }
-  if (u.locked_until && u.locked_until > new Date().toISOString().replace('T', ' ').slice(0, 19)) { audit(u, 'login_locked', 'user', u.id, undefined, ip); return { ok: false, reason: 'locked' }; }
+  // A lock stops guessing, but must not lock the owner out: an address that signed in successfully in the last 30 days may still try.
+  const knownIp = Boolean(db().prepare("SELECT 1 FROM audit_log WHERE action = 'login' AND user_id = ? AND ip_hash = ? AND created_at >= datetime('now', '-30 days') LIMIT 1").get(u.id, ipHash(ip)));
+  if (u.locked_until && u.locked_until > new Date().toISOString().replace('T', ' ').slice(0, 19) && !knownIp) { audit(u, 'login_locked', 'user', u.id, undefined, ip); return { ok: false, reason: 'locked' }; }
   if (!verifyPassword(password, u.password_hash)) {
     const fails = u.failed_logins + 1;
     if (fails >= MAX_FAILS) db().prepare("UPDATE users SET failed_logins = 0, locked_until = datetime('now', ?) WHERE id = ?").run(`+${LOCK_MINUTES} minutes`, u.id);
@@ -50,6 +52,48 @@ export function login(email: string, password: string, ip: string): LoginResult 
   db().prepare("INSERT INTO sessions (token_hash, user_id, csrf, expires_at, ip_hash) VALUES (?, ?, ?, datetime('now', ?), ?)").run(sha256(token), u.id, csrf, `+${SESSION_HOURS} hours`, ipHash(ip));
   audit(u, 'login', 'user', u.id, undefined, ip);
   return { ok: true, token, user: { id: u.id, email: u.email, name: u.name, role: u.role, csrf } };
+}
+
+export const activeAdmins = (): number => (db().prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1").get() as { n: number }).n;
+
+/** The person changes their own password; every other session of theirs is ended. */
+export function changePassword(userId: number, current: string, next: string, keepToken?: string): void {
+  const row = db().prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
+  if (!row || !verifyPassword(current, row.password_hash)) throw new Error('The current password is not correct');
+  const problem = passwordProblem(next); if (problem) throw new Error(problem);
+  db().prepare('UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?').run(hashPassword(next), userId);
+  db().prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').run(userId, keepToken ? sha256(keepToken) : '');
+}
+
+/** An administrator sets a new password for someone (also unlocks the account and ends their sessions). */
+export function resetPassword(userId: number, next: string): void {
+  const problem = passwordProblem(next); if (problem) throw new Error(problem);
+  const r = db().prepare('UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?').run(hashPassword(next), userId);
+  if (!Number(r.changes)) throw new Error('User not found');
+  db().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+}
+
+export function unlockUser(userId: number): void {
+  db().prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?').run(userId);
+}
+
+/** Role change; the last active administrator cannot be demoted. */
+export function setRole(userId: number, role: Role): void {
+  if (!['admin', 'sales', 'editor'].includes(role)) throw new Error('Unknown role');
+  const u = db().prepare('SELECT role, active FROM users WHERE id = ?').get(userId) as { role: Role; active: number } | undefined;
+  if (!u) throw new Error('User not found');
+  if (u.role === 'admin' && u.active && role !== 'admin' && activeAdmins() <= 1) throw new Error('This is the last active administrator');
+  db().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  db().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+}
+
+/** Switches a user on or off; the last active administrator cannot be switched off. */
+export function toggleActive(userId: number): void {
+  const u = db().prepare('SELECT role, active FROM users WHERE id = ?').get(userId) as { role: Role; active: number } | undefined;
+  if (!u) throw new Error('User not found');
+  if (u.active && u.role === 'admin' && activeAdmins() <= 1) throw new Error('This is the last active administrator');
+  db().prepare('UPDATE users SET active = ? WHERE id = ?').run(u.active ? 0 : 1, userId);
+  if (u.active) db().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
 
 export function userForToken(token: string | undefined): SessionUser | null {

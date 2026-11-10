@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 const NAV: { href: string; label: string; perm: string }[] = [
   { href: '/admin', label: 'Dashboard', perm: 'dashboard' }, { href: '/admin/leads', label: 'Leads', perm: 'leads' }, { href: '/admin/submissions', label: 'Submissions', perm: 'leads' },
   { href: '/admin/blog', label: 'Blog', perm: 'blog' }, { href: '/admin/faq', label: 'FAQ', perm: 'faq' }, { href: '/admin/texts', label: 'Texts', perm: 'content' },
-  { href: '/admin/plans', label: 'Pricing plans', perm: 'pricing' }, { href: '/admin/settings', label: 'Settings', perm: 'content' }, { href: '/admin/users', label: 'Users', perm: 'users' }, { href: '/admin/audit', label: 'Audit log', perm: 'audit' },
+  { href: '/admin/plans', label: 'Pricing plans', perm: 'pricing' }, { href: '/admin/settings', label: 'Settings', perm: 'content' }, { href: '/admin/users', label: 'Users', perm: 'users' }, { href: '/admin/account', label: 'My account', perm: 'dashboard' }, { href: '/admin/audit', label: 'Audit log', perm: 'audit' },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {

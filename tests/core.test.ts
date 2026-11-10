@@ -127,8 +127,8 @@ test('passwords: scrypt hashes, strength rules, and sessions with lockout after 
     assert.equal(userForToken(ok.token)?.role, 'admin'); assert.equal(userForToken('forged'), null);
     logout(ok.token); assert.equal(userForToken(ok.token), null);
   }
-  for (let i = 0; i < 5; i += 1) assert.deepEqual(login('admin@noqood.example', 'nope', '10.9.9.9'), { ok: false, reason: 'invalid' });
-  assert.deepEqual(login('admin@noqood.example', 'Noqood-Owner-12345', '10.9.9.9'), { ok: false, reason: 'locked' }); // even the right password is refused for 15 minutes
+  for (let i = 0; i < 5; i += 1) assert.deepEqual(login('admin@noqood.example', 'nope', '10.8.8.8'), { ok: false, reason: 'invalid' });
+  assert.deepEqual(login('admin@noqood.example', 'Noqood-Owner-12345', '10.8.8.8'), { ok: false, reason: 'locked' }); // from an unknown address even the right password is refused for 15 minutes
   assert.deepEqual(login('nobody@noqood.example', 'x', '10.9.9.9'), { ok: false, reason: 'invalid' }); // same answer as a wrong password
   assert.ok(db().prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'login_failed'").get());
 });

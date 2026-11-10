@@ -3,7 +3,7 @@
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { audit, COOKIE, cookieOptions, createUser, login, logout, requireUser, type Role } from '@/lib/auth';
+import { audit, changePassword, COOKIE, cookieOptions, createUser, login, logout, requireUser, resetPassword, setRole, toggleActive, unlockUser, type Role } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { ipHash } from '@/lib/security';
 import { addNote, assign, setFollowUp, setStatus, updateDetails } from '@/lib/leads';
@@ -149,10 +149,27 @@ export async function userAction(fd: FormData) {
     } else if (op === 'toggle') {
       const id = Number(str(fd, 'id', 12));
       if (id === u.id) throw new Error('You cannot deactivate your own account.');
-      db().prepare('UPDATE users SET active = 1 - active WHERE id = ?').run(id);
-      db().prepare('DELETE FROM sessions WHERE user_id = ? AND (SELECT active FROM users WHERE id = ?) = 0').run(id, id);
+      toggleActive(id);
       audit(u, 'user_toggle', 'user', id);
+    } else if (op === 'reset') {
+      const id = Number(str(fd, 'id', 12));
+      resetPassword(id, String(fd.get('password') ?? ''));
+      audit(u, 'user_password_reset', 'user', id);
+    } else if (op === 'unlock') {
+      const id = Number(str(fd, 'id', 12)); unlockUser(id); audit(u, 'user_unlock', 'user', id);
+    } else if (op === 'role') {
+      const id = Number(str(fd, 'id', 12)); setRole(id, str(fd, 'role', 10) as Role); audit(u, 'user_role', 'user', id, str(fd, 'role', 10));
     } else throw new Error('Unknown operation');
   } catch (e) { back('/admin/users', (e as Error).message); }
   back('/admin/users', 'Saved');
+}
+
+// ── my account: change my own password ──
+export async function passwordAction(fd: FormData) {
+  const u = requireUser('dashboard', str(fd, 'csrf', 100));
+  const next = String(fd.get('new') ?? ''); const again = String(fd.get('again') ?? '');
+  if (next !== again) back('/admin/account', 'The two new passwords are different.');
+  try { changePassword(u.id, String(fd.get('current') ?? ''), next, cookies().get(COOKIE)?.value); audit(u, 'password_change', 'user', u.id); }
+  catch (e) { back('/admin/account', (e as Error).message); }
+  back('/admin/account', 'Password changed. Other sessions were signed out.');
 }

@@ -11,6 +11,7 @@ import { db, migrate } from '../src/lib/db';
 import { erpUrl } from '../src/lib/settings';
 import { formToken, checkFormToken } from '../src/lib/security';
 import { handleSubmission } from '../src/lib/submit';
+import { createUser, login, changePassword, resetPassword, setRole, toggleActive, userForToken } from '../src/lib/auth';
 
 test('F-02: the client-typed left-most X-Forwarded-For entry is ignored', () => {
   assert.equal(pickClientIp('6.6.6.6, 203.0.113.9', null, 1), '203.0.113.9');
@@ -45,4 +46,31 @@ test('F-07: a refused (invalid) submission does not use the token up', async () 
   const body = form({ message: 'x' }); // too short -> 422
   assert.equal((await handleSubmission('contact', body, ctx('10.1.0.3'))).status, 422);
   assert.equal((await handleSubmission('contact', { ...body, message: 'Now a proper message here.' }, ctx('10.1.0.3'))).status, 201);
+});
+
+test('F-04: a locked account can still be used from an address that signed in before; others stay locked', () => {
+  createUser('boss@noqood.example', 'Boss', 'admin', 'Boss-Password-12345');
+  assert.ok(login('boss@noqood.example', 'Boss-Password-12345', '10.5.0.1').ok); // establishes the known address
+  for (let i = 0; i < 5; i += 1) login('boss@noqood.example', 'wrong', '10.6.6.6'); // an attacker locks the account
+  assert.deepEqual(login('boss@noqood.example', 'Boss-Password-12345', '10.6.6.6'), { ok: false, reason: 'locked' });
+  assert.ok(login('boss@noqood.example', 'Boss-Password-12345', '10.5.0.1').ok);
+});
+
+test('F-05: change password, admin reset (unlocks), role and active guards keep one administrator', () => {
+  const id = createUser('second@noqood.example', 'Second', 'sales', 'Second-Password-123');
+  const r = login('second@noqood.example', 'Second-Password-123', '10.7.0.1');
+  const r2 = login('second@noqood.example', 'Second-Password-123', '10.7.0.1');
+  assert.ok(r.ok && r2.ok); if (!r.ok || !r2.ok) return;
+  assert.throws(() => changePassword(id, 'wrong-current', 'New-Password-12345', r.token), /current password/);
+  assert.throws(() => changePassword(id, 'Second-Password-123', 'short', r.token));
+  changePassword(id, 'Second-Password-123', 'New-Password-12345', r.token);
+  assert.ok(userForToken(r.token)); assert.equal(userForToken(r2.token), null); // other sessions ended
+  assert.ok(login('second@noqood.example', 'New-Password-12345', '10.7.0.1').ok);
+  for (let i = 0; i < 5; i += 1) login('second@noqood.example', 'x', '10.7.7.7');
+  resetPassword(id, 'Reset-Password-12345'); assert.ok(login('second@noqood.example', 'Reset-Password-12345', '10.7.7.7').ok);
+  const boss = (db().prepare("SELECT id FROM users WHERE email = 'boss@noqood.example'").get() as { id: number }).id;
+  assert.throws(() => setRole(boss, 'sales'), /last active administrator/);
+  assert.throws(() => toggleActive(boss), /last active administrator/);
+  setRole(id, 'admin'); setRole(boss, 'editor');
+  assert.equal((db().prepare('SELECT role FROM users WHERE id = ?').get(boss) as { role: string }).role, 'editor');
 });
