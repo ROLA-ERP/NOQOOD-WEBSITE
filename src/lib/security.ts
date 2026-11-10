@@ -51,16 +51,17 @@ export function ipHash(ip: string): string {
   return crypto.createHmac('sha256', secret()).update(`ip:${ip}`).digest('hex').slice(0, 32);
 }
 
-/** A form token proves the form was served by this site and not submitted instantly by a script: "<issuedAt>.<signature>". */
+/** A form token proves the form was served by this site and not submitted instantly by a script: "<issuedAt>.<nonce>.<signature>". Single use (see submit.ts). */
 export function formToken(now = Date.now()): string {
-  return `${now}.${hmac(`form:${now}`)}`;
+  const nonce = randomToken(12);
+  return `${now}.${nonce}.${hmac(`form:${now}:${nonce}`)}`;
 }
 
 export function checkFormToken(token: string | undefined, { minAgeMs = 2500, maxAgeMs = 6 * 3600 * 1000, now = Date.now() } = {}): 'ok' | 'invalid' | 'too_fast' | 'expired' {
   if (!token) return 'invalid';
-  const [issued, sig] = token.split('.');
+  const [issued, nonce, sig] = token.split('.');
   const t = Number(issued);
-  if (!Number.isFinite(t) || !sig || !safeEqual(sig, hmac(`form:${t}`))) return 'invalid';
+  if (!Number.isFinite(t) || !nonce || !sig || !safeEqual(sig, hmac(`form:${t}:${nonce}`))) return 'invalid';
   if (now - t < minAgeMs) return 'too_fast';
   if (now - t > maxAgeMs) return 'expired';
   return 'ok';

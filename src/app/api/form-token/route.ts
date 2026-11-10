@@ -5,5 +5,5 @@ export const dynamic = 'force-dynamic';
 
 /** A signed, time-stamped token the forms send back. Pages stay cacheable; the token is fetched when the form mounts. */
 export async function GET() {
-  return json({ token: formToken() });
+  return json({ token: formToken(), captchaSiteKey: process.env.TURNSTILE_SECRET ? (process.env.TURNSTILE_SITE_KEY || '') : '' });
 }

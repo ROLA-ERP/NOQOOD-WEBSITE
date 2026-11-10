@@ -63,6 +63,13 @@ CREATE TABLE audit_log (
 CREATE INDEX idx_audit_created ON audit_log(created_at);
 `,
   },
+  {
+    id: '002_used_form_tokens',
+    sql: `
+CREATE TABLE used_form_tokens (token_hash TEXT PRIMARY KEY, used_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX idx_used_tokens_at ON used_form_tokens(used_at);
+`,
+  },
 ];
 
 let instance: DatabaseSync | null = null;

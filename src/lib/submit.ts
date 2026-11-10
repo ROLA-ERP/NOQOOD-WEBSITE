@@ -1,7 +1,7 @@
 // Processing of the contact and demo forms. A success answer is returned only after the submission and its lead are stored in the database.
 import { db } from './db';
 import { contactSchema, demoSchema, fieldErrors } from './validate';
-import { checkFormToken, ipHash } from './security';
+import { checkFormToken, ipHash, sha256 } from './security';
 import { overLimit } from './ratelimit';
 import { createLead } from './leads';
 import { notifyNewLead } from './mail';
@@ -42,6 +42,10 @@ export async function handleSubmission(kind: 'contact' | 'demo', raw: unknown, c
   const d = db();
   try {
     d.exec('BEGIN IMMEDIATE');
+    // a form token works once: a replayed token is refused (the insert fails on the primary key)
+    d.prepare("DELETE FROM used_form_tokens WHERE used_at < datetime('now', '-1 day')").run();
+    try { d.prepare('INSERT INTO used_form_tokens (token_hash) VALUES (?)').run(sha256(String(body.form_token))); }
+    catch { d.exec('ROLLBACK'); return { status: 400, body: { ok: false, error: 'expired_form' } }; }
     const payload = { ...v }; delete (payload as Record<string, unknown>).consent; delete (payload as Record<string, unknown>).website; delete (payload as Record<string, unknown>).form_token; delete (payload as Record<string, unknown>).captcha;
     const sub = d.prepare('INSERT INTO submissions (kind, payload, lang, source, ip_hash, user_agent) VALUES (?, ?, ?, ?, ?, ?)').run(kind, JSON.stringify({ ...payload, consent_given: true }), ctx.lang, kind, ipH, (ctx.userAgent || '').slice(0, 200));
     submissionId = Number(sub.lastInsertRowid);

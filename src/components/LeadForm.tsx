@@ -1,5 +1,7 @@
 'use client';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+
+declare global { interface Window { turnstile?: { render: (el: HTMLElement, o: Record<string, unknown>) => string; reset: (id?: string) => void } } }
 
 export interface Opt { value: string; label: string }
 export interface FormLabels {
@@ -15,13 +17,24 @@ export default function LeadForm({ kind, lang, labels, industries, sizes, module
   kind: Kind; lang: 'ar' | 'en'; labels: FormLabels; industries: Opt[]; sizes: Opt[]; modules: Opt[]; inquiries: Opt[]; methods: Opt[];
 }) {
   const [token, setToken] = useState('');
+  const [siteKey, setSiteKey] = useState('');
+  const [captcha, setCaptcha] = useState('');
+  const widget = useRef<string | null>(null);
   const [vals, setVals] = useState<Values>({ interest: [], consent: false, website: '' });
   const [state, setState] = useState<'idle' | 'sending' | 'done'>('idle');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState('');
   const [leadCode, setLeadCode] = useState('');
 
-  useEffect(() => { fetch('/api/form-token', { cache: 'no-store' }).then(r => r.json()).then(d => setToken(d.token || '')).catch(() => setToken('')); }, []);
+  const loadToken = useCallback(() => fetch('/api/form-token', { cache: 'no-store' }).then(r => r.json()).then(d => { setToken(d.token || ''); setSiteKey(d.captchaSiteKey || ''); }).catch(() => setToken('')), []);
+  useEffect(() => { loadToken(); }, [loadToken]);
+  // Cloudflare Turnstile: shown only when the server has it configured; its answer is sent as "captcha"
+  const box = useCallback((el: HTMLDivElement | null) => {
+    if (!el || !siteKey || widget.current) return;
+    const mount = () => { if (window.turnstile && !widget.current) widget.current = window.turnstile.render(el, { sitekey: siteKey, callback: (t: string) => setCaptcha(t), 'expired-callback': () => setCaptcha(''), 'error-callback': () => setCaptcha('') }); };
+    if (window.turnstile) { mount(); return; }
+    const s = document.createElement('script'); s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; s.async = true; s.onload = mount; document.head.appendChild(s);
+  }, [siteKey]);
 
   const set = (k: string, v: string | string[] | boolean) => setVals(p => ({ ...p, [k]: v }));
   const toggleModule = (m: string) => { const cur = (vals.interest as string[]) || []; set('interest', cur.includes(m) ? cur.filter(x => x !== m) : [...cur, m]); };
@@ -38,15 +51,16 @@ export default function LeadForm({ kind, lang, labels, industries, sizes, module
     if (Object.keys(local).length) { setErrors(local); return; }
     setState('sending');
     try {
-      const body: Record<string, unknown> = { ...vals, form_token: token };
+      const body: Record<string, unknown> = { ...vals, form_token: token, ...(siteKey ? { captcha } : {}) };
       for (const k of Object.keys(body)) if (body[k] === '') delete body[k];
       const res = await fetch(`/api/${kind}?lang=${lang}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok === true) { setLeadCode(data.leadCode); setState('done'); return; } // success only after the server stored the request
       setState('idle');
+      if (siteKey) { setCaptcha(''); window.turnstile?.reset(widget.current || undefined); } // a captcha answer is single use
+      if (data?.error === 'expired_form') loadToken(); // the form token is only used up by a stored submission
       if (data?.fields) { setErrors(data.fields); return; }
       setBanner(data?.error ? (labels.errors[data.error] || labels.errNetwork) : labels.errNetwork);
-      if (data?.error === 'expired_form' || data?.error === 'too_fast') fetch('/api/form-token', { cache: 'no-store' }).then(r => r.json()).then(d => setToken(d.token || '')).catch(() => undefined);
     } catch { setState('idle'); setBanner(labels.errNetwork); }
   }
 
@@ -135,7 +149,8 @@ export default function LeadForm({ kind, lang, labels, industries, sizes, module
         </label>
         {errors.consent && <p className="err">{msg('consent')}</p>}
       </div>
-      <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={state === 'sending' || !token}>{state === 'sending' ? labels.sending : labels.send}</button>
+      {siteKey && <div ref={box} />}
+      <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={state === 'sending' || !token || (Boolean(siteKey) && !captcha)}>{state === 'sending' ? labels.sending : labels.send}</button>
     </form>
   );
 }
